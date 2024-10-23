@@ -1,15 +1,13 @@
 package aqua.blatt1.client;
 
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Observable;
-import java.util.Random;
-import java.util.Set;
+import java.net.InetSocketAddress;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
+import aqua.blatt1.common.msgtypes.Token;
 
 public class TankModel extends Observable implements Iterable<FishModel> {
 
@@ -21,6 +19,12 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 	protected final Set<FishModel> fishies;
 	protected int fishCounter = 0;
 	protected final ClientCommunicator.ClientForwarder forwarder;
+
+	protected InetSocketAddress left_neighbour = null;
+	protected InetSocketAddress right_neighbour = null;
+
+	protected boolean token = false;
+	protected Timer timer = new Timer();
 
 	public TankModel(ClientCommunicator.ClientForwarder forwarder) {
 		this.fishies = Collections.newSetFromMap(new ConcurrentHashMap<FishModel, Boolean>());
@@ -67,8 +71,10 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 
 			fish.update();
 
-			if (fish.hitsEdge())
-				forwarder.handOff(fish);
+			if (fish.hitsEdge() && token)
+				forwarder.handOff(fish, this);
+			else if (fish.hitsEdge() && !token)
+				fish.reverse();
 
 			if (fish.disappears())
 				it.remove();
@@ -98,4 +104,31 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 		forwarder.deregister(id);
 	}
 
+	public synchronized void neighbourUpdate(InetSocketAddress left_neighbour, InetSocketAddress right_neighbour) {
+		this.left_neighbour = left_neighbour;
+		this.right_neighbour = right_neighbour;
+	}
+
+	public synchronized void setLeftNeighbour(InetSocketAddress left_neighbour) { this.left_neighbour = left_neighbour; }
+	public synchronized void setRightNeighbour(InetSocketAddress right_neighbour) { this.right_neighbour = right_neighbour; }
+	public synchronized InetSocketAddress getLeftNeighbour() { return this.left_neighbour; }
+	public synchronized InetSocketAddress getRightNeighbour() { return this.right_neighbour; }
+
+	public synchronized void recieveToken() {
+		this.token = true;
+		TimerTask task = new TimerTask() {
+			@Override
+			public void run() {
+				sendToken();
+			}
+		};
+		timer.schedule(task, 2000);
+	}
+
+	public synchronized boolean hasToken() { return this.token; }
+
+	private synchronized void sendToken() {
+		token = false;
+		forwarder.sendToken(left_neighbour);
+	}
 }

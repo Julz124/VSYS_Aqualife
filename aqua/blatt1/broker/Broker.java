@@ -2,16 +2,13 @@ package aqua.blatt1.broker;
 
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
+import aqua.blatt1.common.msgtypes.*;
 import aqua.blatt2.broker.PoisonPill;
 import aqua.blatt2.broker.Poisoner;
 import messaging.Endpoint;
 import messaging.Message;
 
 // Message Types
-import aqua.blatt1.common.msgtypes.HandoffRequest;
-import aqua.blatt1.common.msgtypes.RegisterResponse;
-import aqua.blatt1.common.msgtypes.DeregisterRequest;
-import aqua.blatt1.common.msgtypes.RegisterRequest;
 
 import java.net.InetSocketAddress;
 import java.util.LinkedList;
@@ -66,23 +63,38 @@ public class Broker {
                 System.out.println("Client " + msg.getSender() + " got registered as tank" + client_count);
                 endpoint.send(msg.getSender(), new RegisterResponse("tank" + client_count));
 
+                InetSocketAddress left_neighbor = client_list.getLeftNeighborOf(client_count);
+                InetSocketAddress right_neighbor = client_list.getRightNeighborOf(client_count);
+                endpoint.send(left_neighbor, new NeighborUpdate(msg.getSender(),Direction.RIGHT));
+                endpoint.send(right_neighbor, new NeighborUpdate(msg.getSender(),Direction.LEFT));
+                endpoint.send(msg.getSender(), new NeighborUpdate(left_neighbor,Direction.LEFT));
+                endpoint.send(msg.getSender(), new NeighborUpdate(right_neighbor,Direction.RIGHT));
+
                 client_count++;
             }
+
+            if (client_count == 1)
+                endpoint.send(msg.getSender(), new Token());
         }
 
         private void deregister(Message msg) {
             int curr_client_index = client_list.indexOf(msg.getSender());
             client_list.remove(curr_client_index);
             System.out.println("Client tank" + curr_client_index + " got succesfully removed");
+
+            InetSocketAddress left_neighbor = client_list.getLeftNeighborOf(curr_client_index);
+            InetSocketAddress right_neighbor = client_list.getRightNeighborOf(curr_client_index);
+            endpoint.send(left_neighbor, new NeighborUpdate(right_neighbor, Direction.RIGHT));
+            endpoint.send(right_neighbor, new NeighborUpdate(left_neighbor, Direction.LEFT));
         }
 
         private void handoffFish(Message msg) {
             int curr_client_index = client_list.indexOf(msg.getSender());
             FishModel fish = ((HandoffRequest) msg.getPayload()).getFish();
             if (fish.getDirection() == Direction.LEFT) {
-                endpoint.send(client_list.getLeftNeighorOf(curr_client_index), new HandoffRequest(((HandoffRequest) msg.getPayload()).getFish()));
+                endpoint.send(client_list.getLeftNeighborOf(curr_client_index), new HandoffRequest(((HandoffRequest) msg.getPayload()).getFish()));
             } else {
-                endpoint.send(client_list.getRightNeighorOf(curr_client_index), new HandoffRequest(((HandoffRequest) msg.getPayload()).getFish()));
+                endpoint.send(client_list.getRightNeighborOf(curr_client_index), new HandoffRequest(((HandoffRequest) msg.getPayload()).getFish()));
             }
         }
     }
