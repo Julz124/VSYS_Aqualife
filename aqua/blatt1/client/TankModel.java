@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit;
 
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
-import aqua.blatt1.common.msgtypes.Token;
+import aqua.blatt1.common.msgtypes.*;
 
 public class TankModel extends Observable implements Iterable<FishModel> {
 
@@ -25,6 +25,20 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 
 	protected boolean token = false;
 	protected Timer timer = new Timer();
+
+	protected SnapshotState snapshotState = SnapshotState.IDLE;
+	boolean snapshotInProgress = false;
+	boolean isInitializer = false;
+	int localSnapshotCounter = 0;
+	int globalSnapshotCounter = 0;
+	int fadingFishiesCounter = 0;
+
+	enum SnapshotState {
+		IDLE,
+		LEFT,
+		RIGHT,
+		BOTH
+	}
 
 	public TankModel(ClientCommunicator.ClientForwarder forwarder) {
 		this.fishies = Collections.newSetFromMap(new ConcurrentHashMap<FishModel, Boolean>());
@@ -73,11 +87,13 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 
 			if (fish.hitsEdge() && token)
 				forwarder.handOff(fish, this);
+				fadingFishiesCounter++;
 			else if (fish.hitsEdge() && !token)
 				fish.reverse();
 
 			if (fish.disappears())
 				it.remove();
+				fadingFishiesCounter--;
 		}
 	}
 
@@ -131,4 +147,66 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 		token = false;
 		forwarder.sendToken(left_neighbour);
 	}
+
+	public synchronized void initiateSnapshot() {
+		snapshotState = SnapshotState.BOTH;
+		snapshotInProgress = true;
+
+		this.isInitializer = true;
+		this.localSnapshotCounter = fishies.size() - fadingFishiesCounter;
+
+		forwarder.sendSnapshotMarker(left_neighbour);
+		forwarder.sendSnapshotMarker(right_neighbour);
+	}
+
+	public synchronized void recieveSnapshotMarker(Direction dir) {
+		//case idle
+		if(this.snapshotState.equals(SnapshotState.IDLE)) {
+
+			this.localSnapshotCounter = fishies.size() - fadingFishiesCounter;
+
+			if(dir.equals(Direction.LEFT)){
+				this.snapshotState = SnapshotState.RIGHT;
+				forwarder.sendSnapshotMarker(right_neighbour);
+			}else{
+				this.snapshotState = SnapshotState.LEFT;
+				forwarder.sendSnapshotMarker(left_neighbour);
+			}
+
+			// case both
+		} else if(this.snapshotState.equals(SnapshotState.BOTH)) {
+			if(dir.equals(Direction.LEFT)){
+				this.snapshotState = SnapshotState.RIGHT;
+			}else{
+				this.snapshotState = SnapshotState.LEFT;
+			}
+
+		} else {
+			this.snapshotState = SnapshotState.IDLE;
+			if(!this.isInitializer) {
+				forwarder.sendSnapshotMarker(dir.equals(Direction.LEFT) ? right_neighbour : left_neighbour);
+				System.out.println("Snapshot complete (Non-Initializer), Fishcount: " + this.localSnapshotCounter);
+			} else {
+				//Snapshot complete
+				//this.isInitializer = false;
+				forwarder.sendSnapshotToken(new SnapshotToken(), left_neighbour);
+				System.out.println("Snapshot complete (Initializer), Fishcount: " + this.localSnapshotCounter);
+
+			}
+		}
+	}
+
+	public synchronized void recieveSnapshotToken(SnapshotToken token) {
+		System.out.println(token.getGlobalCounter());
+		if (!this.isInitializer) {
+			token.addGlobalCounter(this.localSnapshotCounter);
+			forwarder.sendSnapshotToken(token, left_neighbour);
+		} else if (this.isInitializer) {
+			token.addGlobalCounter(this.localSnapshotCounter);
+			this.globalSnapshotCounter = token.getGlobalCounter();
+			this.snapshotInProgress = false;
+			this.isInitializer = false;
+		}
+	}
+
 }

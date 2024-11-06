@@ -23,6 +23,14 @@ public class ClientCommunicator {
 			this.broker = new InetSocketAddress(Properties.HOST, Properties.PORT);
 		}
 
+		public synchronized void sendSnapshotMarker(InetSocketAddress neighbor) {
+			endpoint.send(neighbor, new SnapshotMarker());
+		}
+
+		public synchronized void sendSnapshotToken(SnapshotToken token, InetSocketAddress neighbor) {
+			endpoint.send(neighbor, token);
+		}
+
 		public void register() {
 			endpoint.send(broker, new RegisterRequest());
 		}
@@ -69,8 +77,22 @@ public class ClientCommunicator {
 						tankModel.setRightNeighbour(((NeighborUpdate) msg.getPayload()).getAddress());
 				}
 
-				if (msg.getPayload() instanceof Token)
+				if (msg.getPayload() instanceof Token) {
 					tankModel.recieveToken();
+				}
+
+				if (msg.getPayload() instanceof SnapshotMarker) {
+					if (msg.getSender().equals(tankModel.left_neighbour)){
+						tankModel.recieveSnapshotMarker(Direction.LEFT);
+					} else if (msg.getSender().equals(tankModel.right_neighbour)) {
+						tankModel.recieveSnapshotMarker(Direction.RIGHT);
+					}
+				}
+
+				if (msg.getPayload() instanceof SnapshotToken) {
+					tankModel.recieveSnapshotToken((SnapshotToken) msg.getPayload());
+				}
+
 			}
 			System.out.println("Receiver stopped.");
 		}
