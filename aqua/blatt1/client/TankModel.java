@@ -88,7 +88,7 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 			if (fish.hitsEdge() && token)
 				forwarder.handOff(fish, this);
 				fadingFishiesCounter++;
-			else if (fish.hitsEdge() && !token)
+			if (fish.hitsEdge() && !token)
 				fish.reverse();
 
 			if (fish.disappears())
